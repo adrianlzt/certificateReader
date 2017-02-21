@@ -16,6 +16,14 @@ is_binary() {
   return $FALSE
 }
 
+is_key() {
+  egrep "PRIVATE KEY-----$" "$FILE" >& /dev/null
+  if [[ $? -eq 0 ]]; then
+    return $TRUE
+  fi
+  return $FALSE
+}
+
 several_certificates_inside() {
   COUNT=$(egrep "^-----" "$FILE" | wc -l)
   if [[ $COUNT -gt 2 ]]; then
@@ -29,6 +37,9 @@ is_file() {
     [[ -f $file ]]
 }
 
+headers () {
+    echo "$1" | egrep -A 10 "^Certificate:"
+}
 
 ##########
 ## MAIN ##
@@ -41,34 +52,40 @@ if ! is_file "$FILE"; then
   exit 1
 fi
 
+if is_key "$FILE"; then
+  echo -e "$FILE is a private key"
+  exit 1
+fi
+
 
 if is_binary "$FILE"; then
-  OUTPUT=$(openssl x509 -noout -text -inform der -in "$FILE")
+  OUTPUT=$(openssl x509 -noout -text -inform der -in "$FILE" 2>&1)
   if [[ $? -eq 0 ]]; then
     # Certificate with DER encoding
-    echo "$OUT"
+    headers "$(echo "$OUTPUT")"
   else
-    OUTPUT=$(openssl pkcs7 -inform der -print_certs -text -noout -in "$FILE")
+    OUTPUT=$(openssl pkcs7 -inform der -print_certs -text -noout -in "$FILE" 2>&1)
     if [[ $? -eq 0 ]]; then
       # Cert pcks7, DER encoding
-      echo "$OUT"
+      headers "$(echo "$OUTPUT")"
     else
       # Cert pkcs12
-      openssl pkcs12 -info -in "$FILE"
+      headers "$(openssl pkcs12 -info -in "$FILE")"
     fi
   fi
 else
   if several_certificates_inside "$FILE"; then
     # Multi PEM certs in one file
-    openssl crl2pkcs7 -nocrl -certfile "$FILE" | openssl pkcs7 -print_certs -text -noout
+    headers "$(openssl crl2pkcs7 -nocrl -certfile "$FILE" | openssl pkcs7 -print_certs -text -noout)"
   else
-    OUT=$(openssl x509 -noout -text -in "$FILE")
+    OUTPUT=$(openssl x509 -noout -text -in "$FILE" 2>&1)
     if [[ $? -eq 0 ]]; then
       # Cert PEM encoding
-      echo "$OUT"
+      headers "$OUTPUT"
     else
       # Cert pkcs7, PEM encoding
-      openssl pkcs7 -print_certs -text -noout -in "$FILE"
+      headers "$(openssl pkcs7 -print_certs -text -noout -in "$FILE")"
     fi
   fi
 fi
+
